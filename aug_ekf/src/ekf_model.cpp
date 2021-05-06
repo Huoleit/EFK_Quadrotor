@@ -75,7 +75,7 @@ namespace ekf_imu_vision
         -cos(phi) * sin(theta), sin(phi), cos(phi) * cos(theta);
 
     x_dot.segment<3>(3) = G.inverse() * (Eigen::Vector3d(wx, wy, wz) - Eigen::Vector3d(bgx, bgy, bgz) - Eigen::Vector3d(ngx, ngy, ngz));
-    x_dot.segment<3>(6) = Eigen::Vector3d(0, 0, 9.8) + R * (Eigen::Vector3d(ax, ay, az) - Eigen::Vector3d(bax, bay, baz) - Eigen::Vector3d(nax, nay, naz));
+    x_dot.segment<3>(6) = Eigen::Vector3d(0, 0, -9.8) + R * (Eigen::Vector3d(ax, ay, az) - Eigen::Vector3d(bax, bay, baz) - Eigen::Vector3d(nax, nay, naz));
     x_dot.segment<3>(9) = Eigen::Vector3d(nbgx, nbgy, nbgz);
     x_dot.segment<3>(12) = Eigen::Vector3d(nbax, nbay, nbax);
 
@@ -252,13 +252,13 @@ namespace ekf_imu_vision
            Eigen::AngleAxisd(state(3), Eigen::Vector3d::UnitX()) *
            Eigen::AngleAxisd(state(4), Eigen::Vector3d::UnitY());
 
-    q_wk = Eigen::AngleAxisd(state(17), Eigen::Vector3d::UnitZ()) *
-           Eigen::AngleAxisd(state(15), Eigen::Vector3d::UnitX()) *
-           Eigen::AngleAxisd(state(16), Eigen::Vector3d::UnitY());
+    q_wk = Eigen::AngleAxisd(state(20), Eigen::Vector3d::UnitZ()) *
+           Eigen::AngleAxisd(state(18), Eigen::Vector3d::UnitX()) *
+           Eigen::AngleAxisd(state(19), Eigen::Vector3d::UnitY());
 
     Eigen::Matrix3d R_wk = q_wk.matrix();
 
-    Eigen::Matrix3d R_kb = R_wk.transpose() * q_wb;
+    Eigen::Matrix3d R_kb = R_wk.transpose() * q_wb.matrix();
 
     zt.segment<3>(0) = R_wk.transpose() * (state.head(3) - state.segment<3>(15));
 

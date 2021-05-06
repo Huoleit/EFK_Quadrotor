@@ -72,7 +72,7 @@ void process(const vector<int> &pts_id, const vector<cv::Point3f> &pts_3, const 
 {
 
     cv::Mat r, rvec, t;
-    cv::solvePnPRansac(pts_3, pts_2, K, D, rvec, t, false, 100, 1, 0.99);
+    cv::solvePnP(pts_3, pts_2, K, D, rvec, t);
     cv::Rodrigues(rvec, r);
     Matrix3d R_ref;
     for (int i = 0; i < 3; i++)
