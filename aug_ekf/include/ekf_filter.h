@@ -85,6 +85,8 @@ namespace ekf_imu_vision
     ros::Subscriber imu_sub_, pnp_sub_, stereo_sub_;
     ros::Publisher fuse_odom_pub_, path_pub_;
     nav_msgs::Path path_;
+    int vo_last_seq;
+    int vo_count;
 
     void imuCallback(const sensor_msgs::ImuConstPtr &imu_msg);
     void PnPCallback(const nav_msgs::OdometryConstPtr &msg);

@@ -11,6 +11,19 @@ namespace ekf_imu_vision
     return result - M_PI;
   }
 
+  static inline void normalize_state(Vec21 &state)
+  {
+    state(3) = normalize_angle(state(3));
+    state(4) = normalize_angle(state(4));
+    state(5) = normalize_angle(state(5));
+
+    state(18) = normalize_angle(state(18));
+    state(19) = normalize_angle(state(19));
+    state(20) = normalize_angle(state(20));
+
+    ROS_ERROR_STREAM_COND(state(3) > M_PI_2 || state(3) < -M_PI_2 || state(18) > M_PI_2 || state(18) < -M_PI_2, "Angle Error");
+  }
+
   EKFImuVision::EKFImuVision(/* args */) {}
 
   EKFImuVision::~EKFImuVision() {}
@@ -18,7 +31,8 @@ namespace ekf_imu_vision
   void EKFImuVision::init(ros::NodeHandle &nh)
   {
     node_ = nh;
-
+    vo_last_seq = 0;
+    vo_count = 0;
     /* ---------- parameter ---------- */
     Qt_.setZero();
     Rt1_.setZero();
@@ -103,7 +117,9 @@ namespace ekf_imu_vision
     // TODO
     // label the previous keyframe
     // construct a new state using the relative measurement from VO and process the new state
-
+    ROS_ERROR_STREAM_COND(vo_last_seq != 0 && msg->header.seq != vo_last_seq + 1, "Lost packet " << msg->header.seq - 1 - vo_last_seq);
+    vo_last_seq = msg->header.seq;
+    vo_count++;
     Mat3x3 R_k_b = Eigen::Quaterniond(msg->relative_pose.orientation.w, msg->relative_pose.orientation.x,
                                       msg->relative_pose.orientation.y, msg->relative_pose.orientation.z)
                        .toRotationMatrix();
@@ -124,6 +140,10 @@ namespace ekf_imu_vision
     bool change_frame = latest_idx[keyframe] >= 0 &&
                         latest_idx[keyframe] < aug_state_hist_.size() &&
                         new_state.key_frame_time_stamp != aug_state_hist_[latest_idx[keyframe]].time_stamp;
+
+    ROS_INFO_STREAM(vo_count);
+    // if (!init_)
+    // if (vo_count < 180)
     processNewState(new_state, change_frame);
   }
 
@@ -156,7 +176,7 @@ namespace ekf_imu_vision
     // TODO
     // predict by IMU inputs
     double dt = (cur_state.time_stamp - prev_state.time_stamp).toSec();
-    if (dt > 4.0 / 400.0)
+    if (dt > 0.05)
     {
       ROS_ERROR_STREAM("dt is " << dt);
       cur_state.mean = prev_state.mean;
@@ -176,6 +196,8 @@ namespace ekf_imu_vision
     cur_state.covariance.topRightCorner(15, 6) = F * prev_state.covariance.topRightCorner(15, 6);
     cur_state.covariance.bottomLeftCorner(6, 15) = cur_state.covariance.topRightCorner(15, 6).transpose();
     cur_state.covariance.bottomRightCorner(6, 6) = prev_state.covariance.bottomRightCorner(6, 6);
+
+    normalize_state(cur_state.mean);
   }
 
   void EKFImuVision::updatePnP(AugState &cur_state, AugState &prev_state)
@@ -197,6 +219,8 @@ namespace ekf_imu_vision
 
     cur_state.mean = prev_state.mean + K * innovation;
     cur_state.covariance = prev_state.covariance - K * C * prev_state.covariance;
+
+    normalize_state(cur_state.mean);
   }
 
   void EKFImuVision::updateVO(AugState &cur_state, AugState &prev_state)
@@ -217,11 +241,16 @@ namespace ekf_imu_vision
 
     cur_state.mean = prev_state.mean + K * innovation;
     cur_state.covariance = prev_state.covariance - K * C * prev_state.covariance;
+
+    normalize_state(cur_state.mean);
+
+    // cur_state.mean = prev_state.mean;
+    // cur_state.covariance = prev_state.covariance;
   }
 
   void EKFImuVision::changeAugmentedState(AugState &state)
   {
-    ROS_ERROR("----------------change keyframe------------------------");
+    ROS_WARN("----------------change keyframe------------------------");
 
     // TODO
     // change augmented state
@@ -240,6 +269,19 @@ namespace ekf_imu_vision
     // step 3: repropagate from the iterator you extracted.
     // step 4: remove the old states.
     // step 5: publish the latest fused odom
+    if (validate_ind(latest_idx[keyframe], vo) &&
+        validate_ind(latest_idx[vo], vo) &&
+        aug_state_hist_[latest_idx[vo]].key_frame_time_stamp != aug_state_hist_[latest_idx[keyframe]].time_stamp)
+    {
+      deque<AugState>::iterator it = aug_state_hist_.end();
+      while (it != aug_state_hist_.begin() && (it - 1)->time_stamp >= aug_state_hist_[latest_idx[vo]].key_frame_time_stamp)
+        it--;
+      ROS_ERROR_STREAM("Key_index changed. Expect " << it - aug_state_hist_.begin() << " Get " << latest_idx[keyframe]
+                                                    << " Type " << it->type
+                                                    << " Size " << aug_state_hist_.size()
+                                                    << " Diff "
+                                                    << aug_state_hist_[latest_idx[vo]].key_frame_time_stamp - it->time_stamp);
+    }
 
     deque<AugState>::iterator it = insertNewState(new_state);
     if (change_keyframe)
@@ -247,15 +289,48 @@ namespace ekf_imu_vision
       while (it != aug_state_hist_.begin() && (it - 1)->time_stamp >= new_state.key_frame_time_stamp)
         it--;
 
-      latest_idx[keyframe] = it - aug_state_hist_.begin();
-      changeAugmentedState(*it);
+      if (it->type == vo)
+      {
+        ROS_ERROR_STREAM_COND(new_state.key_frame_time_stamp != it->time_stamp, "Time mismatch");
+        latest_idx[keyframe] = it - aug_state_hist_.begin();
+        changeAugmentedState(*it);
+        /*test*/
+        // if (init_ && vo_count > 80 && latest_idx[pnp] > latest_idx[keyframe])
+        // {
+        //   deque<AugState>::iterator it_1 = it;
+        //   while (it != aug_state_hist_.end())
+        //   {
+        //     ROS_INFO_STREAM(it->type << " | " << it->mean.transpose());
+        //     it++;
+        //   }
+        //   ROS_INFO_STREAM("-----------------------------------");
+        //   it = it_1 + 1;
+        //   repropagate(it, init_);
+        //   it = it_1;
+        //    while (it != aug_state_hist_.end())
+        //   {
+        //     ROS_INFO_STREAM(it->type << " | " << it->mean.transpose());
+        //     it++;
+        //   }
+        //   while(1);
+        // }
+        /*test*/
+        it++;
+      }
     }
 
     if (!init_)
     {
       if (initFilter())
       {
+
         repropagate(it, init_);
+        // for (AugState &s : aug_state_hist_)
+        // {
+        //   ROS_INFO_STREAM(s.type << " | " << s.mean.transpose() << " | " << s.ut.transpose());
+        // }
+        // while (1)
+        //   ;
         init_ = true;
         removeOldState();
         ROS_INFO_STREAM("Initialized");
@@ -281,6 +356,14 @@ namespace ekf_imu_vision
     // update the latest_idx of the type of the new state
     // return the iterator point to the new state in the queue
 
+    bool is_valid_ind[4];
+    for (int i = 0; i < 4; i++)
+    {
+      is_valid_ind[i] = validate_ind(latest_idx[i], i);
+      if (i == keyframe)
+        is_valid_ind[i] = validate_ind(latest_idx[i], vo);
+    }
+
     while (state_it != aug_state_hist_.begin() && (state_it - 1)->time_stamp > time)
       state_it--;
 
@@ -289,9 +372,46 @@ namespace ekf_imu_vision
 
     for (int i = 0; i < 4; i++)
     {
-      if (i != new_state.type && aug_state_hist_[latest_idx[i]].type == i && latest_idx[i] >= latest_idx[new_state.type])
+      if (i != new_state.type &&
+          is_valid_ind[i] &&
+          latest_idx[i] >= latest_idx[new_state.type])
         latest_idx[i] += 1;
     }
+
+    deque<AugState>::iterator i = aug_state_hist_.begin();
+    while (i != aug_state_hist_.end())
+    {
+      if (i != aug_state_hist_.end() - 1 && i->time_stamp > (i + 1)->time_stamp)
+        ROS_ERROR_STREAM("Wrong Queue Order");
+      i++;
+    }
+
+    int check[4] = {-1, -1, -1, -1};
+    deque<AugState>::reverse_iterator ri = aug_state_hist_.rbegin();
+    while (ri != aug_state_hist_.rend())
+    {
+      if (check[ri->type] == -1)
+        check[ri->type] = std::distance(begin(aug_state_hist_), ri.base()) - 1;
+      ri++;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+      if (check[i] == -1)
+        check[i] = 0;
+      if (check[i] != latest_idx[i])
+        ROS_ERROR_STREAM("Error Index: " << check[i] << " is " << latest_idx[i]
+                                         << " Size: " << aug_state_hist_.size() << " | "
+                                         << latest_idx[imu] << " "
+                                         << latest_idx[pnp] << " "
+                                         << latest_idx[vo] << " "
+                                         << latest_idx[keyframe]
+                                         << " | "
+                                         << aug_state_hist_[check[i]].type << " "
+                                         << aug_state_hist_[latest_idx[i]].type << " | "
+                                         << state_it->type);
+    }
+
     return state_it;
   }
 
@@ -304,7 +424,18 @@ namespace ekf_imu_vision
 
     deque<AugState>::iterator cur = new_input_it;
     if (cur == aug_state_hist_.begin())
-      return;
+    {
+      ROS_ERROR_STREAM("Insert to the front");
+      if (aug_state_hist_.size() >= 2)
+      {
+        cur++;
+      }
+      else
+      {
+        return;
+      }
+      
+    }
 
     deque<AugState>::iterator pre = new_input_it - 1;
     while (cur != aug_state_hist_.end())
@@ -321,13 +452,8 @@ namespace ekf_imu_vision
         break;
 
       case vo:
-      {
-        if (init)
-        {
-          updateVO(*cur, *pre);
-        }
+        updateVO(*cur, *pre);
         break;
-      }
 
       default:
         break;
@@ -362,10 +488,28 @@ namespace ekf_imu_vision
     phi = last_state.mean(3);
     theta = last_state.mean(4);
     psi = last_state.mean(5);
+    if (isnan(last_state.mean(0)))
+    {
+      for (AugState &s : aug_state_hist_)
+      {
+        ROS_INFO_STREAM(s.type << " | " << s.mean.transpose() << " | " << s.ut.transpose());
+      }
+      while (1)
+        ;
+    }
 
+    // if (vo_count > 10)
+    // {
+    //   for (AugState &s : aug_state_hist_)
+    //   {
+    //     ROS_INFO_STREAM(s.type << " | " << s.mean.transpose() << " | " << s.ut.transpose());
+    //   }
+    //   while (1)
+    //     ;
+    // }
     if (last_state.mean.head(3).norm() > 20)
     {
-      ROS_ERROR_STREAM("error state: " << last_state.mean.head(3).transpose());
+      ROS_WARN_STREAM("error state: " << last_state.mean.head(3).transpose());
       return;
     }
 
@@ -406,7 +550,7 @@ namespace ekf_imu_vision
 
     // TODO
     // Initial the filter when a keyframe after marker PnP measurements is available
-    ROS_ERROR_STREAM(latest_idx[imu] << " " << latest_idx[pnp] << " " << latest_idx[vo] << " " << latest_idx[keyframe] << " " << aug_state_hist_.size() << " " << aug_state_hist_[latest_idx[pnp]].type << " " << pnp << " " << aug_state_hist_[latest_idx[keyframe]].type << " " << vo);
+    ROS_WARN_STREAM(latest_idx[imu] << " " << latest_idx[pnp] << " " << latest_idx[vo] << " " << latest_idx[keyframe] << " " << aug_state_hist_.size() << " " << aug_state_hist_[latest_idx[pnp]].type << " " << pnp << " " << aug_state_hist_[latest_idx[keyframe]].type << " " << vo);
 
     if (!aug_state_hist_.empty() &&
         validate_ind(latest_idx[keyframe], vo) &&
@@ -415,7 +559,6 @@ namespace ekf_imu_vision
       deque<AugState>::iterator keyframe_it = aug_state_hist_.begin() + latest_idx[keyframe];
       if (initUsingPnP(keyframe_it))
       {
-        ROS_WARN_STREAM("AA");
         changeAugmentedState(*keyframe_it);
         return true;
       }
