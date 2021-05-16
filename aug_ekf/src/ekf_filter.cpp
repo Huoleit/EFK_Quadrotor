@@ -66,11 +66,10 @@ namespace ekf_imu_vision
     /* ---------- subscribe and publish ---------- */
     imu_sub_ =
         node_.subscribe<sensor_msgs::Imu>("/dji_sdk_1/dji_sdk/imu", 100, &EKFImuVision::imuCallback, this);
-    pnp_sub_ = node_.subscribe<nav_msgs::Odometry>("tag_odom", 10, &EKFImuVision::PnPCallback, this);
+    // pnp_sub_ = node_.subscribe<nav_msgs::Odometry>("tag_odom", 10, &EKFImuVision::PnPCallback, this);
     // opti_tf_sub_ = node_.subscribe<geometry_msgs::PointStamped>("opti_tf_odom", 10,
     // &EKFImuVision::opticalCallback, this);
-    stereo_sub_ = node_.subscribe<stereo_vo::relative_pose>("/vo/Relative_pose", 10,
-                                                            &EKFImuVision::stereoVOCallback, this);
+    stereo_sub_ = node_.subscribe<stereo_vo::relative_pose>("/vo/Relative_pose", 40, &EKFImuVision::stereoVOCallback, this);
     fuse_odom_pub_ = node_.advertise<nav_msgs::Odometry>("ekf_fused_odom", 10);
     path_pub_ = node_.advertise<nav_msgs::Path>("/aug_ekf/Path", 100);
 
@@ -194,7 +193,7 @@ namespace ekf_imu_vision
     Mat15x15 covariance = M_r_ * prev_state.covariance * M_r_.transpose();
     cur_state.covariance.topLeftCorner(15, 15) = F * covariance * F.transpose() + V * Qt_ * V.transpose();
     cur_state.covariance.topRightCorner(15, 6) = F * prev_state.covariance.topRightCorner(15, 6);
-    cur_state.covariance.bottomLeftCorner(6, 15) = cur_state.covariance.topRightCorner(15, 6).transpose();
+    cur_state.covariance.bottomLeftCorner(6, 15) = prev_state.covariance.bottomLeftCorner(6,15) * F.transpose();
     cur_state.covariance.bottomRightCorner(6, 6) = prev_state.covariance.bottomRightCorner(6, 6);
 
     normalize_state(cur_state.mean);
@@ -269,9 +268,9 @@ namespace ekf_imu_vision
     // step 3: repropagate from the iterator you extracted.
     // step 4: remove the old states.
     // step 5: publish the latest fused odom
-    if (validate_ind(latest_idx[keyframe], vo) &&
+    if (init_ &&
         validate_ind(latest_idx[vo], vo) &&
-        aug_state_hist_[latest_idx[vo]].key_frame_time_stamp != aug_state_hist_[latest_idx[keyframe]].time_stamp)
+        fabs((aug_state_hist_[latest_idx[vo]].key_frame_time_stamp - aug_state_hist_[latest_idx[keyframe]].time_stamp).toSec()) > 1.0/400.0)
     {
       deque<AugState>::iterator it = aug_state_hist_.end();
       while (it != aug_state_hist_.begin() && (it - 1)->time_stamp >= aug_state_hist_[latest_idx[vo]].key_frame_time_stamp)
@@ -280,7 +279,8 @@ namespace ekf_imu_vision
                                                     << " Type " << it->type
                                                     << " Size " << aug_state_hist_.size()
                                                     << " Diff "
-                                                    << aug_state_hist_[latest_idx[vo]].key_frame_time_stamp - it->time_stamp);
+                                                    << aug_state_hist_[latest_idx[vo]].key_frame_time_stamp - aug_state_hist_[latest_idx[keyframe]].time_stamp << " "
+                                                    << it->time_stamp - aug_state_hist_[latest_idx[keyframe]].time_stamp);
     }
 
     deque<AugState>::iterator it = insertNewState(new_state);
@@ -289,7 +289,7 @@ namespace ekf_imu_vision
       while (it != aug_state_hist_.begin() && (it - 1)->time_stamp >= new_state.key_frame_time_stamp)
         it--;
 
-      if (it->type == vo)
+      if ((!init_ && it->type == vo) || init_)
       {
         ROS_ERROR_STREAM_COND(new_state.key_frame_time_stamp != it->time_stamp, "Time mismatch");
         latest_idx[keyframe] = it - aug_state_hist_.begin();
@@ -360,8 +360,10 @@ namespace ekf_imu_vision
     for (int i = 0; i < 4; i++)
     {
       is_valid_ind[i] = validate_ind(latest_idx[i], i);
-      if (i == keyframe)
-        is_valid_ind[i] = validate_ind(latest_idx[i], vo);
+      // if (i == keyframe)
+      //   is_valid_ind[i] = latest_idx[i] >= 0 && latest_idx[i] < aug_state_hist_.size() && 
+      //                     (aug_state_hist_[latest_idx[i]].type == vo || 
+      //                     (validate_ind(latest_idx[vo], vo) && aug_state_hist_[latest_idx[i]].time_stamp > aug_state_hist_[latest_idx[vo]].time_stamp));
     }
 
     while (state_it != aug_state_hist_.begin() && (state_it - 1)->time_stamp > time)
@@ -403,13 +405,12 @@ namespace ekf_imu_vision
         ROS_ERROR_STREAM("Error Index: " << check[i] << " is " << latest_idx[i]
                                          << " Size: " << aug_state_hist_.size() << " | "
                                          << latest_idx[imu] << " "
-                                         << latest_idx[pnp] << " "
                                          << latest_idx[vo] << " "
-                                         << latest_idx[keyframe]
-                                         << " | "
-                                         << aug_state_hist_[check[i]].type << " "
-                                         << aug_state_hist_[latest_idx[i]].type << " | "
-                                         << state_it->type);
+                                         << latest_idx[keyframe]);
+                                        //  << " | "
+                                        //  << aug_state_hist_[check[i]].type << " "
+                                        //  << aug_state_hist_[latest_idx[i]].type << " | "
+                                        //  << state_it->type);
     }
 
     return state_it;
@@ -470,13 +471,14 @@ namespace ekf_imu_vision
     // TODO
     // remove the unnecessary old states to prevent the queue from becoming too long
 
-    unsigned int remove_idx = min(min(latest_idx[imu], latest_idx[pnp]), latest_idx[keyframe]);
+    unsigned int remove_idx = min(latest_idx[imu], latest_idx[keyframe]);
 
     aug_state_hist_.erase(aug_state_hist_.begin(), aug_state_hist_.begin() + remove_idx);
 
     for (int i = 0; i < 4; i++)
     {
-      latest_idx[i] -= remove_idx;
+      if (i != pnp)
+        latest_idx[i] -= remove_idx;
     }
   }
 
@@ -498,7 +500,7 @@ namespace ekf_imu_vision
         ;
     }
 
-    // if (vo_count > 10)
+    // if (vo_count > 480)
     // {
     //   for (AugState &s : aug_state_hist_)
     //   {
@@ -507,11 +509,11 @@ namespace ekf_imu_vision
     //   while (1)
     //     ;
     // }
-    if (last_state.mean.head(3).norm() > 20)
-    {
-      ROS_WARN_STREAM("error state: " << last_state.mean.head(3).transpose());
-      return;
-    }
+    // if (last_state.mean.head(3).norm() > 20)
+    // {
+    //   ROS_WARN_STREAM("error state: " << last_state.mean.head(3).transpose());
+    //   return;
+    // }
 
     // using the zxy euler angle
     Eigen::Quaterniond q = Eigen::AngleAxisd(psi, Eigen::Vector3d::UnitZ()) *
@@ -553,8 +555,7 @@ namespace ekf_imu_vision
     ROS_WARN_STREAM(latest_idx[imu] << " " << latest_idx[pnp] << " " << latest_idx[vo] << " " << latest_idx[keyframe] << " " << aug_state_hist_.size() << " " << aug_state_hist_[latest_idx[pnp]].type << " " << pnp << " " << aug_state_hist_[latest_idx[keyframe]].type << " " << vo);
 
     if (!aug_state_hist_.empty() &&
-        validate_ind(latest_idx[keyframe], vo) &&
-        validate_ind(latest_idx[pnp], pnp))
+        validate_ind(latest_idx[keyframe], vo))
     {
       deque<AugState>::iterator keyframe_it = aug_state_hist_.begin() + latest_idx[keyframe];
       if (initUsingPnP(keyframe_it))
@@ -570,24 +571,11 @@ namespace ekf_imu_vision
   bool EKFImuVision::initUsingPnP(deque<AugState>::iterator start_it)
   {
 
-    // TODO
-    // Initialize the absolute pose of the state in the queue using marker PnP measurement.
-    // This is only step 1 of the initialization.
-
-    deque<AugState>::iterator it = start_it;
-    while (it != aug_state_hist_.begin() && it->type != pnp)
-      it--;
-
-    if (it->type == pnp)
-    {
-      start_it->mean = Vec21::Zero();
-      start_it->mean.head(6) = it->ut;
-      start_it->covariance = Mat21x21::Identity();
-      ROS_INFO_STREAM("init PnP state: " << start_it->mean.transpose());
-      return true;
-    }
-
-    return false;
+    start_it->mean = Vec21::Zero();
+    start_it->covariance = Mat21x21::Identity();
+    ROS_INFO_STREAM("init PnP state: " << start_it->mean.transpose());
+    return true;
+  
   }
 
   Vec3 EKFImuVision::rotation2Euler(const Mat3x3 &R)

@@ -36,11 +36,11 @@ body_T_cam1: !!opencv-matrix
 max_freq: 20                # max frequency of processing image 
 
 #feature traker paprameters
-max_cnt: 150                # max feature number in feature tracking
-min_cnt: 20                 # min feature number in feature tracking
+max_cnt: 100                # max feature number in feature tracking
+min_cnt: 30                 # min feature number in feature tracking
 min_dist: 30                # min distance between two features 
 
-translation_threshold: 0.05 # min translation to switch key frame
+translation_threshold: 0.06 # min translation to switch key frame
 rotation_threshold: 0.05    # min rotation to switch key frame
 feature_threshold: 50       # min tracking feature to switch key frame
 flow_back: 1            # perform forward and backward optical flow to improve feature tracking accuracy

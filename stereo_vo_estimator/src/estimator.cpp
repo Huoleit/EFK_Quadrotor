@@ -134,6 +134,11 @@ bool Estimator::inputImage(ros::Time time_stamp, const cv::Mat &_img, const cv::
   // Change key frame
   if (c_t_k.norm() > TRANSLATION_THRESHOLD || acos(Quaterniond(c_R_k).w()) * 2.0 > ROTATION_THRESHOLD || key_pts_3d.size() < FEATURE_THRESHOLD || !init_finish)
   {
+    if (c_t_k.norm() > 2)
+    {
+      c_t_k.setZero();
+      c_R_k.setIdentity();
+    }
     key_frame = cur_frame;
     is_keyframe = true;
     ROS_INFO("Change key frame to current frame.");
@@ -173,7 +178,7 @@ bool Estimator::trackFeatureBetweenFrames(const Estimator::frame &keyframe, cons
   {
     float dx = flowback_pts_2d[i].x - key_pts_2d[i].x;
     float dy = flowback_pts_2d[i].y - key_pts_2d[i].y;
-    if (dx * dx + dy * dy > 1)
+    if (dx * dx + dy * dy > 0.1)
     {
       status[i] = 0;
     }
@@ -185,7 +190,7 @@ bool Estimator::trackFeatureBetweenFrames(const Estimator::frame &keyframe, cons
   if (cur_pts_2d.size() > 8)
   {
     vector<uchar> mask;
-    cv::findFundamentalMat(key_pts_2d, cur_pts_2d, mask, cv::FM_RANSAC, 1, 0.995);
+    cv::findFundamentalMat(key_pts_2d, cur_pts_2d, mask, cv::FM_RANSAC, 0.05, 0.995);
     reduceVector<cv::Point2f>(cur_pts_2d, mask);
     reduceVector<cv::Point2f>(key_pts_2d, mask);
     reduceVector<cv::Point3f>(key_pts_3d, mask);
@@ -202,7 +207,7 @@ bool Estimator::estimateTBetweenFrames(vector<cv::Point3f> &key_pts_3d,
   // To do: calculate relative pose between the key frame and the current frame using the matched 2d-3d points
   cv::Mat r, rvec, trans;
 
-  cv::solvePnPRansac(key_pts_3d, cur_pts_2d, cv::Mat::eye(3, 3, CV_64F), cv::Mat(), rvec, trans, false, 200, 2.0f, 0.999);
+  cv::solvePnPRansac(key_pts_3d, cur_pts_2d, cv::Mat::eye(3, 3, CV_64F), cv::Mat(), rvec, trans, false, 200, 0.1f, 0.999);
   cv::Rodrigues(rvec, r);
   cv::cv2eigen(r, R);
   cv::cv2eigen(trans, t);
