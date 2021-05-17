@@ -2,12 +2,6 @@
 
 // using namespace std;
 
-// for debug
-#include <backward.hpp>
-namespace backward {
-backward::SignalHandling sh;
-}
-
 namespace stereo_vo {
 
 cv::Mat getImageFromMsg(const sensor_msgs::ImageConstPtr& img_msg) {

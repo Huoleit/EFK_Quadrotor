@@ -17,11 +17,6 @@
 using namespace std;
 using namespace Eigen;
 
-#include <backward.hpp>
-namespace backward {
-backward::SignalHandling sh;
-}
-
 int main(int argc, char** argv) {
   ros::init(argc, argv, "aug_ekf");
   ros::NodeHandle n("~");

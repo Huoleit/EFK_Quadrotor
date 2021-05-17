@@ -1,6 +1,7 @@
 %YAML:1.0
 
 #common parameters
+
 image0_topic: "/camera/infra1/image_rect_raw"
 image1_topic: "/camera/infra2/image_rect_raw"
 
@@ -12,37 +13,59 @@ image_height: 480
 
 # Extrinsic parameters.
 
+# body_T_cam0: !!opencv-matrix
+#    rows: 4
+#    cols: 4
+#    dt: d
+#    data: [ 6.7118058587714025e-03, 6.0367550859230491e-02,
+#        9.9815365072987261e-01, 3.1045845878992444e-02,
+#        -9.9992833856234842e-01, 1.0300399687694362e-02,
+#        6.1007791482246910e-03, 2.3108966372376402e-02,
+#        -9.9130924567375628e-03, -9.9812306884949420e-01,
+#        6.0432359116719847e-02, 6.0975873889736742e-02, 0., 0., 0., 1. ]
+# body_T_cam1: !!opencv-matrix
+#    rows: 4
+#    cols: 4
+#    dt: d
+#    data: [ 8.8767193750723949e-03, 5.7623924712634181e-02,
+#        9.9829889670070704e-01, 3.1444937744542809e-02,
+#        -9.9991433504633831e-01, 1.0114967132512698e-02,
+#        8.3072262968653231e-03, -2.6261400498127013e-02,
+#        -9.6190655458499620e-03, -9.9828711838860307e-01,
+#        5.7708776086517255e-02, 5.9873745612567621e-02, 0., 0., 0., 1. ]
+
 body_T_cam0: !!opencv-matrix
    rows: 4
    cols: 4
    dt: d
-   data: [ -8.9355548926082218e-03, -4.7161632480919313e-03,
-       9.9994895552872043e-01, 8.9599947535121655e-02,
-       -9.9995229031683008e-01, 3.9885141298856563e-03,
-       -8.9167732483371176e-03, 1.4286905182102854e-02,
-       -3.9462575800057187e-03, -9.9998092459769139e-01,
-       -4.7515778283855337e-03, 8.4552968117333517e-03, 0., 0., 0., 1. ]
+   data: [ -9.1802088075787491e-03, 5.0839185879565152e-02,
+       9.9866465890475609e-01, 5.3035503859681001e-03,
+       -9.9991999390668251e-01, -9.1581011111541155e-03,
+       -8.7255354963686194e-03, 4.6816111573773085e-02,
+       8.7022728013872452e-03, -9.9866486188467718e-01,
+       5.0919191715396606e-02, 6.3065622100468260e-02, 0., 0., 0., 1. ]
 body_T_cam1: !!opencv-matrix
    rows: 4
    cols: 4
    dt: d
-   data: [ -6.7210555763113078e-03, -6.8719598824178996e-03,
-       9.9995380072247075e-01, 9.0332825438656325e-02,
-       -9.9996964992870629e-01, 3.9865683937803098e-03,
-       -6.6937653008454778e-03, -3.5168174815196560e-02,
-       -3.9403849305911232e-03, -9.9996844122193007e-01,
-       -6.8985452656789015e-03, 8.1115055608706015e-03, 0., 0., 0., 1. ]
+   data: [ -9.7691965669699510e-03, 5.1091694637283414e-02,
+       9.9864618436037023e-01, 5.2685865959706821e-03,
+       -9.9991377146210758e-01, -9.2637583612975583e-03,
+       -9.3076539174862249e-03, -1.9408487448460924e-03,
+       8.7756731286045553e-03, -9.9865100086071823e-01,
+       5.1177788551536763e-02, 6.3744223985757686e-02, 0., 0., 0., 1. ]
 
-max_freq: 20                # max frequency of processing image 
+
+max_freq: 10                # max frequency of processing image 
 
 #feature traker paprameters
-max_cnt: 100                # max feature number in feature tracking
-min_cnt: 30                 # min feature number in feature tracking
+max_cnt: 80                # max feature number in feature tracking
+min_cnt: 20                 # min feature number in feature tracking
 min_dist: 30                # min distance between two features 
 
-translation_threshold: 0.06 # min translation to switch key frame
+translation_threshold: 0.05 # min translation to switch key frame
 rotation_threshold: 0.05    # min rotation to switch key frame
 feature_threshold: 50       # min tracking feature to switch key frame
 flow_back: 1            # perform forward and backward optical flow to improve feature tracking accuracy
 
-show_feature: 1           # show tracked features in the images
+show_feature: 0           # show tracked features in the images
